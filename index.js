@@ -1,5 +1,7 @@
 const fs = require('fs');
 const parser = require('@solidity-parser/parser');
+const { parserArgu, parserType } = require('./utils/type');
+const { exportOutput } = require('./utils/exports');
 const { table } = require('table');
 
 // Check if the correct arguments are provided
@@ -16,108 +18,79 @@ try {
 
     const imports = []
     const contracts = []
-    const modifiers = []
+    const events = [['event']];
+    const modifiers = [['modifier']]
     const variables = [['variable', 'type', 'visibility']]
     const functions = [['function', 'visibility', 'stateMutability', 'modifiers', 'returns']]
 
     parser.visit(ast, {
-        ImportDirective: function (_import) {
-            // console.log(_import)
-        },
+        pragmaDirective: function (_pragma) { },
+        ImportDirective: function (_import) { },
         ContractDefinition: function (_contract) {
             parser.visit(_contract, {
                 StateVariableDeclaration: function (_stateVariable) {
                     parser.visit(_stateVariable, {
                         VariableDeclaration: function (_variable) {
-                            console.log(_variable)
-                            const { typeName, name } = _variable;
-
-                            const isMapping = typeName.type == 'Mapping';
-                            switch (typeName.type) {
-                                case 'Mapping':
-                                    const { keyType, valueType } = typeName;
-
-
-                                case 'ElementaryTypeName':
-                                    break;
-                                case 'UserDefinedType':
-                                    break;
-                                case 'ArrayTypeName':
-                                    break;
-                            }
-
-
-
+                            const { name, typeName, visibility } = _variable;
+                            variables.push([name, parserType(typeName), visibility])
 
                         }
                     })
                 },
                 ModifierDefinition: function (_modifier) {
+                    const { name, parameters } = _modifier;
+                    if (parameters != null && parameters.length >= 1) {
+                        const args = parameters.map(({ typeName }) => parserType(typeName)).join(', ');
+                        modifiers.push([`${name}(${args})`])
+                    } else {
+                        modifiers.push([name])
+                    }
 
+                },
+                EventDefinition: function (_event) {
+                    const { name, parameters } = _event;
+                    if (parameters != null && parameters.length >= 1) {
+                        const args = parameters.map(({ typeName }) => parserType(typeName)).join(', ');
+                        events.push([`${name}(${args})`])
+                    } else {
+                        events.push([name])
+                    }
                 },
                 FunctionDefinition: function (_function) {
                     const { name, visibility, stateMutability, modifiers, returnParameters, parameters } = _function;
 
-                    let inParams = '';
-                    if (parameters) {
-                        inParams = parameters.map(({ typeName }) => {
-                            const { type } = typeName;
-                            if (type == 'ArrayTypeName') {
-                                return `${typeName.baseTypeName.name}[]`
-                            }
+                    const input = parameters != null ? parameters.map(({ typeName }) => parserArgu(typeName)).join(', ') : '';
+                    const output =
+                        returnParameters != null ?
+                            returnParameters.map(({ typeName }) => parserType(typeName)).join(', ') : '';
 
-                            return typeName.name
-                        }).join(', ');
-                    }
-                    const nameWithParams = `${name}(${inParams})`;
-
-                    // returns
-                    let outParams = '';
-                    if (returnParameters) {
-                        outParams = returnParameters.map(({ typeName }) => {
-                            const { type } = typeName;
-                            if (type == 'ArrayTypeName') {
-                                return `${typeName.baseTypeName.name}[]`
-                            }
-
-                            return typeName.name
-                        }).join(', ');
-                    }
-
-                    // modifiers
-                    const m = modifiers.map(({ name, arguments }) => {
-                        let r = name;
-                        if (arguments != null && arguments.length > 1) {
-                            ags = arguments.map(({ typeName }) => {
-                                const { type } = typeName;
-                                if (type == 'ArrayTypeName') {
-                                    return `${typeName.baseTypeName.name}[]`
-                                }
-
-                                return typeName.name
-                            }).join(', ');
-
-                            return `${r}(${ags})`;
+                    const modifier = modifiers.map(({ name, arguments }) => {
+                        if (arguments != null && arguments.length >= 1) {
+                            ags = arguments.map(({ typeName }) => parserType(typeName)).join(', ');
+                            return `${name}(${ags})`;
                         }
-
-                        return r;
+                        return name;
                     }).join(', ')
 
                     functions.push([
-                        nameWithParams,
+                        `${name}(${input})`,
                         visibility,
                         stateMutability == null ? "" : stateMutability,
-                        m,
-                        outParams,
+                        modifier,
+                        output,
                     ])
 
                 }
             })
         }
     })
-    // console.log(table(functions))
-    // console.log(table(functions))
-
+    // console.log(table(imports));
+    // console.log(table(contracts));
+    console.log(table(events));
+    console.log(table(modifiers));
+    console.log(table(variables));
+    console.log(table(functions));
+    // exportOutput(imports)
 } catch (e) {
     console.error('Error parsing Solidity file:', e);
 }
